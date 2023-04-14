@@ -6,75 +6,117 @@
 /*   By: ttaneski <ttaneski@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2023/03/07 14:16:32 by ttaneski          #+#    #+#             */
-/*   Updated: 2023/03/15 17:12:14 by ttaneski         ###   ########.fr       */
+/*   Updated: 2023/03/31 19:16:04 by ttaneski         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "pipex.h"
 
-/* void    pipex(int f1, int f2)
+void	printerror(char *str)
 {
-    int fd[2];
-    pid_t pid;
-    pipe(fd);
-        if (pipe(fd) == -1)
-    {
-        printf("error opening the pipe");
-        return (1);
-    }
-    if(pid < 0)
-        return (prerror("Fork: "));
-    if(pid == 0)
-    {
+	perror(str);
+	exit (1);
+}
 
-    }
-} */
-
-int main(void)
+static char	*find_path(char **envp, char *cmd)
 {
-    int fd[2];
-    if (pipe(fd) == -1)
-    {
-        printf("error opening the pipe");
-        return (1);
-    }
-    int id = fork();
-    if (id == 0)
-    {
-        int file = open("file1.txt", O_WRONLY | O_CREAT, 0777);
-        if (file == -1)
-            return (2);
-         
-        dup2(fd[1], STDOUT_FILENO);
-        close(fd[0]);
-        close(fd[1]);
-        char cmd[] = "/usr/bin/ls";
-        char *argv[] = {"ls", "-l", NULL};
-        char *envm[] = {NULL};
-        if (execve(cmd, argv, envm) == -1)
-            perror("error");
-        printf("ayo");
-    }
-    int pid2 = fork();
-    if (pid2 < 0)
-        return (2);
-    if (pid2 == 0)
-    {
-        dup2(fd[0], STDIN_FILENO);
-        close(fd[0]);
-        close(fd[1]);
-        char cmd[] = "/usr/bin/wc";
-        char *argv[] = {"wc", "-w", NULL};
-        char *envm[] = {NULL};
-        if (execve(cmd, argv, envm) == -1)
-            perror("error");
-        printf("ayo");
-    }
-    close(fd[0]);
-    close(fd[1]);
+	char	**paths;
+	char	*cmd_path;
+	char	*sub;
 
-    waitpid(id, NULL, 0);
-    waitpid(pid2, NULL, 0);
+	cmd = *ft_split(cmd, ' ');
+	while (*envp && !ft_strnstr(*envp, "PATH=", 5))
+		envp++;
+	sub = ft_substr(*envp, 5, ft_strlen(*envp) - 5);
+	paths = ft_split(sub, ':');
+	free(sub);
+	sub = ft_strjoin("/", cmd);
+	while (*paths)
+	{
+		cmd_path = ft_strjoin(*paths, sub);
+		if (!cmd_path)
+			return (NULL);
+		if (!access(cmd_path, F_OK))
+			break ;
+		free(cmd_path);
+		paths++;
+	}
+	free(sub);
+	free(cmd);
+	return (cmd_path);
+}
 
-    return (0);
+static void	inprocess(int pipefd[2], char *infile, char *cmd, char **envp)
+{
+	int		fd;
+	int		execstat;
+	int		pid;
+	char	*path;
+
+	pid = fork();
+	if (pid == -1)
+		printerror("fork error");
+	else if (pid == 0)
+	{
+		close(pipefd[0]);
+		fd = open(infile, O_RDONLY);
+		if (fd == -1)
+			printerror("Infile small problem");
+		if (is_file_too_big(infile))
+			printerror("very big");
+		dup2(pipefd[1], STDOUT_FILENO);
+		dup2(fd, STDIN_FILENO);
+		path = find_path(envp, cmd);
+		if (!path)
+			printerror("inPath not found");
+		execstat = execve(path, ft_split(cmd, ' '), envp);
+		if (execstat == -1)
+			printerror("execve small problem failed or not foun");
+	}
+}
+
+static void	outprocess(int pipefd[2], char *outfile, char *cmd, char **envp)
+{
+	int		fd;
+	int		execstat;
+	int		pid;
+	char	*path;
+
+	pid = fork();
+	if (pid == -1)
+		printerror("fork error");
+	else if (pid == 0)
+	{
+		close(pipefd[1]);
+		fd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+		if (fd == -1)
+			printerror("outfile small problem");
+		dup2(pipefd[0], STDIN_FILENO);
+		dup2(fd, STDOUT_FILENO);
+		path = find_path(envp, cmd);
+		if (!path)
+			printerror("outPath not found");
+		execstat = execve(path, ft_split(cmd, ' '), envp);
+		if (execstat == -1)
+			printerror("execve small problem failed or not foun");
+	}
+}
+
+int	main(int ac, char **av, char **envp)
+{
+	int	pipefd[2];
+
+	if (ac != 5)
+	{
+		ft_putstr_fd("try this bratan: ./pipex filein cmd1 cmd2 fileout\n", 1);
+		return (1);
+	}
+	if (pipe(pipefd) == -1)
+		printerror("lmao ur pipe is broken");
+	inprocess(pipefd, av[1], av[2], envp);
+	wait(NULL);
+	outprocess(pipefd, av[4], av[3], envp);
+	close(pipefd[0]);
+	close(pipefd[1]);
+	return (0);
 }
